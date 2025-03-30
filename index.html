@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Medical Diagnosis</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Quantum Medical Diagnosis</h1>
+        <div class="symptom-form">
+            <h2>Select Symptoms</h2>
+            <div class="symptom-group">
+                <div class="symptom-item">
+                    <label>
+                        <input type="checkbox" id="fever">
+                        Fever
+                    </label>
+                </div>
+                <div class="symptom-item">
+                    <label>
+                        <input type="checkbox" id="rash">
+                        Rash
+                    </label>
+                </div>
+                <div class="symptom-item">
+                    <label>
+                        <input type="checkbox" id="insomnia">
+                        Insomnia
+                    </label>
+                </div>
+                <div class="symptom-item motion-status">
+                    <label>
+                        <span class="status-label">Tremor Motion:</span>
+                        <span id="tremorStatus" class="status-value">No movement detected</span>
+                    </label>
+                </div>
+                <div class="symptom-item motion-status">
+                    <label>
+                        <span class="status-label">Jerk Motion:</span>
+                        <span id="jerkStatus" class="status-value">No movement detected</span>
+                    </label>
+                </div>
+            </div>
+            <div class="connection-status">
+                <span id="connectionStatus" class="status-indicator"></span>
+            </div>
+            <div class="button-group">
+                <button id="detectionBtn" class="detection-btn">Start Detection</button>
+                <button id="diagnoseBtn" class="diagnose-btn" disabled>Get Diagnosis</button>
+            </div>
+        </div>
+        <div class="result-section">
+            <h2>Possible Illness</h2>
+            <div id="diagnosisResult" class="diagnosis-box">
+                <p>Your diagnosis will appear here...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isDetecting = false;
+        let connectionAttempts = 0;
+        const MAX_ATTEMPTS = 3;
+
+        // function to update connection status
+        function updateConnectionStatus(status, isError = false) {
+            const statusElement = document.getElementById('connectionStatus');
+            statusElement.textContent = status;
+            statusElement.className = `status-indicator ${isError ? 'error' : ''}`;
+        }
+
+        // function to update motion status
+        function updateMotionStatus(type, status) {
+            const statusElement = document.getElementById(`${type}Status`);
+            statusElement.textContent = status;
+            statusElement.className = `status-value ${status.toLowerCase().replace(/\s+/g, '-')}`;
+        }
+
+        // function to handle motion data from Arduino
+        async function handleMotionData(type) {
+            try {
+                const response = await fetch('/motion', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ type }),
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to update motion status');
+                }
+            } catch (error) {
+                // console.error('Error updating motion status:', error);
+                // updateConnectionStatus('Error updating motion data', true);
+            }
+        }
+
+        // function to start WebSocket connection
+        function startWebSocket() {
+            try {
+    
+                ws = new WebSocket('ws://localhost:5001');
+
+                ws.onopen = function() {
+                    // updateConnectionStatus('Connected to Arduino');
+                    connectionAttempts = 0;
+                };
+
+                ws.onmessage = function(event) {
+                    const data = event.data;
+                    console.log('Received data:', data); // for debugging
+                    
+                    
+                    const parts = data.split(' - ');
+                    if (parts.length > 1) {
+                        const motionType = parts[parts.length - 1].trim().toLowerCase();
+                        console.log('Extracted motion type:', motionType); 
+                        
+                        if (motionType === 'hand shaking') {
+                            updateMotionStatus('tremor', 'Hand Shaking Detected');
+                            handleMotionData('tremor');
+                        } else if (motionType === 'sudden movement') {
+                            updateMotionStatus('jerk', 'Sudden Movement Detected');
+                            handleMotionData('jerk');
+                        } else if (motionType === 'no significant movement' || motionType === 'no particular movement') {
+                            // Only update the status that wasn't previously detected
+                            const tremorStatus = document.getElementById('tremorStatus').textContent;
+                            const jerkStatus = document.getElementById('jerkStatus').textContent;
+                            
+                            if (tremorStatus !== 'Hand Shaking Detected') {
+                                updateMotionStatus('tremor', 'No significant movement');
+                            }
+                            if (jerkStatus !== 'Sudden Movement Detected') {
+                                updateMotionStatus('jerk', 'No significant movement');
+                            }
+                            handleMotionData('none');
+                        }
+                    }
+                };
+
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    updateConnectionStatus('Connection error', true);
+                    if (connectionAttempts < MAX_ATTEMPTS) {
+                        connectionAttempts++;
+                        setTimeout(startWebSocket, 2000);
+                    } else {
+                        stopDetection();
+                    }
+                };
+
+                ws.onclose = function() {
+                    // updateConnectionStatus('Disconnected');
+                    if (isDetecting && connectionAttempts < MAX_ATTEMPTS) {
+                        connectionAttempts++;
+                        setTimeout(startWebSocket, 2000);
+                    } else if (connectionAttempts >= MAX_ATTEMPTS) {
+                        stopDetection();
+                    }
+                };
+            } catch (error) {
+                console.error('Error creating WebSocket:', error);
+                updateConnectionStatus('Failed to connect', true);
+                if (connectionAttempts < MAX_ATTEMPTS) {
+                    connectionAttempts++;
+                    setTimeout(startWebSocket, 2000);
+                } else {
+                    stopDetection();
+                }
+            }
+        }
+
+       
+        function stopWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            // updateConnectionStatus('Disconnected');
+        }
+
+    
+        function stopDetection() {
+            isDetecting = false;
+            const detectionBtn = document.getElementById('detectionBtn');
+            const diagnoseBtn = document.getElementById('diagnoseBtn');
+            
+            detectionBtn.textContent = 'Start Detection';
+            detectionBtn.classList.remove('active');
+            diagnoseBtn.disabled = false;
+            stopWebSocket();
+        }
+
+        async function toggleDetection() {
+            const detectionBtn = document.getElementById('detectionBtn');
+            const diagnoseBtn = document.getElementById('diagnoseBtn');
+            
+            if (!isDetecting) {
+                try {
+                    // resets motion status when starting detection
+                    updateMotionStatus('tremor', 'No significant movement');
+                    updateMotionStatus('jerk', 'No significant movement');
+                    handleMotionData('none');
+                    
+                    const response = await fetch('/detection', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ action: 'start' }),
+                    });
+                    
+                    if (response.ok) {
+                        isDetecting = true;
+                        detectionBtn.textContent = 'Stop Detection';
+                        detectionBtn.classList.add('active');
+                        diagnoseBtn.disabled = true;
+                        startWebSocket();
+                    } else {
+                        throw new Error('Failed to start detection');
+                    }
+                } catch (error) {
+                    console.error('Error starting detection:', error);
+                    alert('Failed to start detection. Please try again.');
+                    stopDetection();
+                }
+            } else {
+                try {
+                    const response = await fetch('/detection', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ action: 'stop' }),
+                    });
+                    
+                    if (response.ok) {
+                        stopDetection();
+                    } else {
+                        throw new Error('Failed to stop detection');
+                    }
+                } catch (error) {
+                    console.error('Error stopping detection:', error);
+                    alert('Failed to stop detection. Please try again.');
+                }
+            }
+        }
+
+        // Event listeners
+        document.getElementById('detectionBtn').addEventListener('click', toggleDetection);
+        
+        document.getElementById('diagnoseBtn').addEventListener('click', async () => {
+            if (isDetecting) {
+                alert('Please stop detection before getting diagnosis');
+                return;
+            }
+
+            const symptoms = [
+                document.getElementById('fever').checked ? '1' : '0',
+                document.getElementById('rash').checked ? '1' : '0',
+                document.getElementById('insomnia').checked ? '1' : '0',
+                document.getElementById('tremorStatus').textContent === 'Hand Shaking Detected' ? '1' : '0',
+                document.getElementById('jerkStatus').textContent === 'Sudden Movement Detected' ? '1' : '0'
+            ];
+
+            try {
+                const response = await fetch('/diagnose', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ symptoms }),
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('diagnosisResult').innerHTML = `
+                        <h3>${data.diagnosis}</h3>
+                    `;
+                } else {
+                    document.getElementById('diagnosisResult').innerHTML = `
+                        <p class="error">${data.error}</p>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('diagnosisResult').innerHTML = `
+                    <p class="error">An error occurred while processing your request.</p>
+                `;
+            }
+        });
+    </script>
+</body>
+</html> 
