@@ -1,0 +1,21 @@
+Quantum Diagnosis
+A hybrid diagnostic tool combining classical machine learning and quantum computing to aid in early disease detection.
+
+Project Overview
+Trained a sensor-based neural network to detect hand tremors and jerks—common symptoms in various neurological conditions.
+
+Integrated the sensor’s output with additional symptom data to form a multi-dimensional input set.
+
+Applied Grover’s Search Algorithm using IBM’s Qiskit framework to efficiently search for likely disease matches from a defined dataset.
+
+Technologies Used
+Python, TensorFlow/Keras (for the neural network)
+
+Qiskit (for quantum simulation and Grover’s algorithm)
+
+NumPy, Pandas, and Matplotlib for data preprocessing and visualization
+
+Outcome
+Demonstrated how quantum algorithms like Grover’s can be used in medical diagnostics to narrow down diseases faster than classical search approaches alone.
+
+Explored the potential of quantum-enhanced healthcare, combining real-time biometric inputs with probabilistic quantum outputs.
